@@ -98,6 +98,8 @@ type Transport struct {
 	// If nil, http.DefaultTransport is used
 	Transport http.RoundTripper
 	Cache     Cache
+	// If no cache headers, apply this timing
+	DefaultCacheAge time.Duration
 	// If true, responses returned from the cache will be given an extra header, X-From-Cache
 	MarkCachedResponses bool
 }
@@ -156,7 +158,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 
 		if varyMatches(cachedResp, req) {
 			// Can only use cached value if the new request doesn't Vary significantly
-			freshness := getFreshness(cachedResp.Header, req.Header)
+			freshness := t.getFreshness(cachedResp.Header, req.Header)
 			if freshness == fresh {
 				return cachedResp, nil
 			}
@@ -180,6 +182,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 					req = req2
 				}
 			}
+
 		}
 
 		resp, err = transport.RoundTrip(req)
@@ -290,7 +293,7 @@ var clock timer = &realClock{}
 //
 // Because this is only a private cache, 'public' and 'private' in cache-control aren't
 // signficant. Similarly, smax-age isn't used.
-func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
+func (t *Transport) getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	respCacheControl := parseCacheControl(respHeaders)
 	reqCacheControl := parseCacheControl(reqHeaders)
 	if _, ok := reqCacheControl["no-cache"]; ok {
@@ -368,6 +371,9 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 		return fresh
 	}
 
+	if lifetime == 0 && currentAge < t.DefaultCacheAge {
+		return fresh
+	}
 	return stale
 }
 
